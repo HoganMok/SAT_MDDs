@@ -3,6 +3,7 @@ import argparse
 import glob
 from pathlib import Path
 from cbs import CBSSolver
+from sat import SATSolver
 from independent import IndependentSolver
 from prioritized import PrioritizedPlanningSolver
 from visualize import Animation
@@ -102,6 +103,10 @@ if __name__ == '__main__':
         elif args.solver == "Prioritized":
             print("***Run Prioritized***")
             solver = PrioritizedPlanningSolver(my_map, starts, goals)
+            paths = solver.find_solution()
+        elif args.solver == "SAT":
+            print("***Run SAT***")
+            solver = SATSolver(my_map, starts, goals)
             paths = solver.find_solution()
         else:
             raise RuntimeError("Unknown solver!")
