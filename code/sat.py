@@ -159,44 +159,7 @@ def paths_violate_constraint(constraint, paths):
                 rst.append(i)
     return rst
 
-def position_variables(num_of_agents, MDDs, time_horizon):
-    var_ID = 1
-    position_vars = {}
 
-    for a in range(num_of_agents):
-        for t in range(time_horizon):
-            for node in MDDs[a][t]:
-                position_vars[(a,node,t)] = var_ID
-                var_ID += 1
-    return position_vars
-
-def is_neighbour(u,v):
-    if u[0] == v[0]:
-        if u[1] == v[1]+1:
-            return True
-        elif u[1] == v[1]-1:
-            return True
-    elif u[1] == v[1]:
-        if u[0] == v[0]+1:
-            return True
-        elif u[0] == v[0]-1:
-            return True
-    return False
-
-def transition_variables(num_of_agents, MDDs, time_horizon):
-    var_ID = 1
-    transition_vars = {}
-
-    for a in range(num_of_agents):
-        for t in range(time_horizon):
-            for parent in MDDs[a][t]:
-                if t < time_horizon-1:
-                    for child in MDDs[a][t+1]:
-                        if is_neighbour(parent, child):
-                            transition_vars[(a,parent, child,t)] = var_ID
-                            var_ID += 1
-
-    return transition_vars
 
 
 class SATSolver(object):
@@ -221,8 +184,10 @@ class SATSolver(object):
 
         self.MDDs = []
         self.time_horizon = 0
+        self.variable_ID = 0
         self.position_vars = {}
         self.transition_vars = {}
+        self.position_clauses = []
 
         # compute heuristics for the low-level search
         self.heuristics = []
@@ -239,6 +204,97 @@ class SATSolver(object):
         print("Expand node {}".format(id))
         self.num_of_expanded += 1
         return node
+
+    def position_variables(self):
+        position_vars = {}
+
+        for a in range(self.num_of_agents):
+            for t in range(self.time_horizon):
+                for node in self.MDDs[a][t]:
+                    position_vars[(a, node, t)] = self.variable_ID
+                    self.variable_ID += 1
+        return position_vars
+
+    def is_neighbour(self, u ,v):
+        if u[0] == v[0]:
+            if u[1] == v[1] + 1:
+                return True
+            elif u[1] == v[1] - 1:
+                return True
+        elif u[1] == v[1]:
+            if u[0] == v[0] + 1:
+                return True
+            elif u[0] == v[0] - 1:
+                return True
+        return False
+
+    def transition_variables(self):
+        transition_vars = {}
+
+        for a in range(self.num_of_agents):
+            for t in range(self.time_horizon - 1):
+                for parent in self.MDDs[a][t]:
+                    for child in self.MDDs[a][t + 1]:
+                        if self.is_neighbour(parent, child):
+                            transition_vars[(a, parent, child, t)] = self.variable_ID
+                            self.variable_ID += 1
+
+        return transition_vars
+
+    def position_validity(self):
+        clauses = []
+
+        for a in range(self.num_of_agents):
+            for t in range(self.time_horizon):
+                positions = []
+                for key in self.position_vars:
+                    agent, node, time_step = key
+                    if agent == a and time_step == t:
+                        positions.append(self.position_vars[key])
+                clauses.append(positions)
+
+                for i in range(len(positions)):
+                    for j in range(i + 1, len(positions)):
+                        clauses.append([-positions[i], -positions[j]])
+        return clauses
+
+    #Invalid transitions was pruned during constructing the MDDs
+    def transition_validity(self):
+        clauses = []
+        # for var in self.position_vars.items():
+        #     print("Position Variables: ", var)
+        # for var in self.transition_vars.items():
+        #     print("Transition Variables: ", var)
+        for a in range(self.num_of_agents):
+            for t in range(self.time_horizon - 1):
+                for (agent, parent_node, child_node, time_step) in self.transition_vars:
+                    if agent == a and time_step == t:
+                        transition_var = self.transition_vars[(a, parent_node, child_node, time_step)]
+
+                        #Start-to-Transition: Ensure that if the agent is at a position, it must take a valid transition
+                        clauses.append([-self.position_vars[(agent, parent_node, time_step)], transition_var])
+
+                        #Transition-to-End: Ensure that if a transition occurs, the agent ends up in the correct position at t + 1
+                        #Be in the starting position at the beginning of the transition
+                        #End up in the destination position at the conclusion of the transition
+                        if (agent, parent_node, time_step + 1) in self.position_vars:
+                            clauses.append([-transition_var, self.position_vars[(agent, parent_node, time_step)]])
+                            clauses.append([-transition_var, self.position_vars[(agent, parent_node, time_step + 1)]])
+
+                for (agent, parent_node, child_node, time_step) in self.transition_vars:
+                    for (agent2, parent_node2, child_node2, time_step2) in self.transition_vars:
+                        if (agent == agent2 and time_step == time_step2 and parent_node == parent_node2
+                                and child_node != child_node2):
+                            #Outgoing Transition Mutual Exclusivity: At most one transition can start from the same position
+                            clauses.append([-self.transition_vars[(agent, parent_node, child_node, time_step)],
+                                            -self.transition_vars[(agent, parent_node, child_node2, time_step2)]])
+                        elif (agent == agent2 and time_step == time_step2 and parent_node != parent_node2
+                                and child_node == child_node2):
+                            #Incoming Transition Mutual Exclusivity: At most one transition can end at the same position
+                            clauses.append([-self.transition_vars[(agent, parent_node, child_node, time_step)],
+                                            -self.transition_vars[(agent, parent_node2, child_node, time_step2)]])
+
+        return clauses
 
     def find_solution(self, disjoint=True):
         """ Finds paths for all agents from their start locations to their goal locations
@@ -275,9 +331,12 @@ class SATSolver(object):
             mdd = MDD(self.my_map, self.starts, self.goals, self.time_horizon, i)
             mdd.build()
             self.MDDs.append(mdd.levels)
-        # print(self.MDDs)
-        self.position_vars = position_variables(self.num_of_agents, self.MDDs, self.time_horizon)
-        self.transition_vars = transition_variables(self.num_of_agents, self.MDDs, self.time_horizon)
+        self.position_vars = self.position_variables()
+        self.transition_vars = self.transition_variables()
+        self.position_clauses.append(self.position_validity())
+        self.position_clauses.append(self.transition_validity())
+        # for clause in self.position_clauses:
+        #     print(clause)
         # for mdd in root['mdd']:
         #     print(mdd)
         return None
