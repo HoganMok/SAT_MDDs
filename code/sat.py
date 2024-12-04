@@ -341,6 +341,20 @@ class SATSolver(object):
                                                 -self.transition_vars[(a2, parent2, child2, t)]])
         return clauses
 
+    def enforce_goal_constraints(self):
+        clauses = []
+
+        for a in range(self.num_of_agents):
+            goal_position = self.goals[a]
+            goal_clause = []
+            for t in range(self.time_horizon):
+                if (a, goal_position, t) in self.position_vars:
+                    goal_clause.append(self.position_vars[(a, goal_position, t)])
+            if goal_clause:
+                clauses.append(goal_clause)
+
+        return clauses
+
     def find_solution(self, disjoint=True):
         """ Finds paths for all agents from their start locations to their goal locations
 
@@ -382,6 +396,7 @@ class SATSolver(object):
         self.clauses.append(self.transition_validity())
         self.clauses.append(self.avoid_vertex_collisions())
         self.clauses.append(self.avoid_edge_collisions())
+        self.clauses.append(self.enforce_goal_constraints())
         # for mdd in self.MDDs:
         #     print(mdd)
         return None
