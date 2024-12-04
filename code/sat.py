@@ -187,7 +187,7 @@ class SATSolver(object):
         self.variable_ID = 0
         self.position_vars = {}
         self.transition_vars = {}
-        self.position_clauses = []
+        self.clauses = []
 
         # compute heuristics for the low-level search
         self.heuristics = []
@@ -296,6 +296,51 @@ class SATSolver(object):
 
         return clauses
 
+    def avoid_vertex_collisions(self):
+        clauses = []
+
+        for t in range(self.time_horizon):
+            for a in range(self.num_of_agents):
+                for a2 in range(a+1, self.num_of_agents):
+                    position_a1 = []
+                    position_a2 = []
+                    if t < len(self.MDDs[a]):
+                        position_a1 = self.MDDs[a][t]
+                    if t < len(self.MDDs[a2]):
+                        position_a2 = self.MDDs[a2][t]
+                    # print("Position 1: ", position_a1)
+                    # print("Position 2: ", position_a2)
+                    for pos in position_a1:
+                         if pos in position_a2:
+                             clauses.append([-self.position_vars[(a, pos, t)], -self.position_vars[(a2, pos, t)]])
+        return clauses
+
+    def avoid_edge_collisions(self):
+        clauses = []
+        for t in range(self.time_horizon):
+            for a in range(self.num_of_agents):
+                for a2 in range(a+1, self.num_of_agents):
+                    transitions_a = []
+                    transitions_a2 = []
+                    if t < len(self.MDDs[a]) -1:
+                        for parent in self.MDDs[a][t]:
+                            for child in self.MDDs[a][t+1]:
+                                if (a, parent, child, t) in self.position_vars:
+                                    transitions_a.append((parent,child))
+
+                    if t < len(self.MDDs[a2]) - 1:
+                        for parent in self.MDDs[a2][t]:
+                            for child in self.MDDs[a2][t+1]:
+                                if (a2, parent, child, t) in self.position_vars:
+                                    transitions_a2.append((parent,child))
+
+                    for (parent, child) in transitions_a:
+                        for (parent2, child2) in transitions_a2:
+                            if parent == child2 and parent2 == child:
+                                clauses.append([-self.transition_vars[(a, parent, child, t)],
+                                                -self.transition_vars[(a2, parent2, child2, t)]])
+        return clauses
+
     def find_solution(self, disjoint=True):
         """ Finds paths for all agents from their start locations to their goal locations
 
@@ -333,11 +378,11 @@ class SATSolver(object):
             self.MDDs.append(mdd.levels)
         self.position_vars = self.position_variables()
         self.transition_vars = self.transition_variables()
-        self.position_clauses.append(self.position_validity())
-        self.position_clauses.append(self.transition_validity())
-        # for clause in self.position_clauses:
-        #     print(clause)
-        # for mdd in root['mdd']:
+        self.clauses.append(self.position_validity())
+        self.clauses.append(self.transition_validity())
+        self.clauses.append(self.avoid_vertex_collisions())
+        self.clauses.append(self.avoid_edge_collisions())
+        # for mdd in self.MDDs:
         #     print(mdd)
         return None
 
