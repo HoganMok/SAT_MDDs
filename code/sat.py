@@ -159,6 +159,46 @@ def paths_violate_constraint(constraint, paths):
                 rst.append(i)
     return rst
 
+def position_variables(num_of_agents, MDDs, time_horizon):
+    var_ID = 1
+    position_vars = {}
+
+    for a in range(num_of_agents):
+        for t in range(time_horizon):
+            for node in MDDs[a][t]:
+                position_vars[(a,node,t)] = var_ID
+                var_ID += 1
+    return position_vars
+
+def is_neighbour(u,v):
+    if u[0] == v[0]:
+        if u[1] == v[1]+1:
+            return True
+        elif u[1] == v[1]-1:
+            return True
+    elif u[1] == v[1]:
+        if u[0] == v[0]+1:
+            return True
+        elif u[0] == v[0]-1:
+            return True
+    return False
+
+def transition_variables(num_of_agents, MDDs, time_horizon):
+    var_ID = 1
+    transition_vars = {}
+
+    for a in range(num_of_agents):
+        for t in range(time_horizon):
+            for parent in MDDs[a][t]:
+                if t < time_horizon-1:
+                    for child in MDDs[a][t+1]:
+                        if is_neighbour(parent, child):
+                            transition_vars[(a,parent, child,t)] = var_ID
+                            var_ID += 1
+
+    return transition_vars
+
+
 class SATSolver(object):
     """The high-level search of CBS."""
 
@@ -178,6 +218,11 @@ class SATSolver(object):
         self.CPU_time = 0
 
         self.open_list = []
+
+        self.MDDs = []
+        self.time_horizon = 0
+        self.position_vars = {}
+        self.transition_vars = {}
 
         # compute heuristics for the low-level search
         self.heuristics = []
@@ -212,8 +257,7 @@ class SATSolver(object):
                 'constraints': [],
                 'paths': [],
                 'time_horizon': 0,
-                'collisions': [],
-                'mdd': []}
+                'collisions': []}
 
         for i in range(self.num_of_agents):
             path = a_star(self.my_map, self.starts[i], self.goals[i], self.heuristics[i],
@@ -221,16 +265,19 @@ class SATSolver(object):
             if path is None:
                 raise BaseException('No solutions')
             root['paths'].append(path)
-            if len(path) > root['time_horizon']:
-                root['time_horizon'] = len(path)
+            if len(path) > self.time_horizon:
+                self.time_horizon = len(path)
 
         print(root['time_horizon'])
         self.push_node(root)
 
         for i in range(self.num_of_agents):
-            mdd = MDD(self.my_map, self.starts, self.goals, root['time_horizon'], i)
+            mdd = MDD(self.my_map, self.starts, self.goals, self.time_horizon, i)
             mdd.build()
-            root['mdd'].append(mdd.levels)
+            self.MDDs.append(mdd.levels)
+        # print(self.MDDs)
+        self.position_vars = position_variables(self.num_of_agents, self.MDDs, self.time_horizon)
+        self.transition_vars = transition_variables(self.num_of_agents, self.MDDs, self.time_horizon)
         # for mdd in root['mdd']:
         #     print(mdd)
         return None

@@ -24,7 +24,9 @@ class MDD:
         neighbors = list()
         for direction in range(4):
             move_node = move(node, direction)
-            if 0 < move_node[0] < len(self.graph) - 1 and 0 < move_node[1] < len(self.graph[0]) - 1 and not self.graph[move_node[0]][move_node[1]]:
+            if (0 < move_node[0] < len(self.graph) - 1 and
+                    0 < move_node[1] < len(self.graph[0]) - 1 and
+                    not self.graph[move_node[0]][move_node[1]]):
                 neighbors.append(move_node)
         return neighbors
 
