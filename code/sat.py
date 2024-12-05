@@ -5,163 +5,6 @@ import copy
 from single_agent_planner import compute_heuristics, a_star, get_location, get_sum_of_cost
 from mdd import MDD
 
-
-def detect_collision(path1, path2):
-    ##############################
-    # Task 3.1: Return the first collision that occurs between two robot paths (or None if there is no collision)
-    #           There are two types of collisions: vertex collision and edge collision.
-    #           A vertex collision occurs if both robots occupy the same location at the same timestep
-    #           An edge collision occurs if the robots swap their location at the same timestep.
-    #           You should use "get_location(path, t)" to get the location of a robot at time t.
-
-    max_time = max(len(path1), len(path2))
-
-    for t in range(max_time):
-        loc1 = get_location(path1, t)
-        loc2 = get_location(path2, t)
-
-        if loc1 == loc2:
-            return {'loc': [loc1], 'timestep': t}
-
-        if t < max_time - 1:
-            next_loc1 = get_location(path1, t + 1)
-            next_loc2 = get_location(path2, t + 1)
-
-            if loc1 == next_loc2 and loc2 == next_loc1:
-                return {'loc': [loc1, next_loc1], 'timestep': t+1}
-
-    return None
-
-
-def detect_collisions(paths):
-    ##############################
-    # Task 3.1: Return a list of first collisions between all robot pairs.
-    #           A collision can be represented as dictionary that contains the id of the two robots, the vertex or edge
-    #           causing the collision, and the timestep at which the collision occurred.
-    #           You should use your detect_collision function to find a collision between two robots.
-
-    collisions = []
-
-    for i in range(len(paths)):
-        for j in range(i+1, len(paths)):
-            collision = detect_collision(paths[i], paths[j])
-
-            if collision:
-                collisions.append({
-                    'a1': i,
-                    'a2': j,
-                    'loc': collision['loc'],
-                    'timestep': collision['timestep']
-                })
-
-    return collisions
-
-
-def standard_splitting(collision):
-    ##############################
-    # Task 3.2: Return a list of (two) constraints to resolve the given collision
-    #           Vertex collision: the first constraint prevents the first agent to be at the specified location at the
-    #                            specified timestep, and the second constraint prevents the second agent to be at the
-    #                            specified location at the specified timestep.
-    #           Edge collision: the first constraint prevents the first agent to traverse the specified edge at the
-    #                          specified timestep, and the second constraint prevents the second agent to traverse the
-    #                          specified edge at the specified timestep
-
-    constraints = []
-
-    if len(collision['loc']) == 1:
-        constraints.append({
-            'agent': collision['a1'],
-            'loc': collision['loc'],
-            'timestep': collision['timestep']
-        })
-
-        constraints.append({
-            'agent': collision['a2'],
-            'loc': collision['loc'],
-            'timestep': collision['timestep']
-        })
-    elif len(collision['loc']) == 2:
-        constraints.append({
-            'agent': collision['a1'],
-            'loc': [collision['loc'][0], collision['loc'][1]],
-            'timestep': collision['timestep']
-        })
-
-        constraints.append({
-            'agent': collision['a2'],
-            'loc': [collision['loc'][1], collision['loc'][0]],
-            'timestep': collision['timestep']
-        })
-    return constraints
-
-
-def disjoint_splitting(collision):
-    ##############################
-    # Task 4.1: Return a list of (two) constraints to resolve the given collision
-    #           Vertex collision: the first constraint enforces one agent to be at the specified location at the
-    #                            specified timestep, and the second constraint prevents the same agent to be at the
-    #                            same location at the timestep.
-    #           Edge collision: the first constraint enforces one agent to traverse the specified edge at the
-    #                          specified timestep, and the second constraint prevents the same agent to traverse the
-    #                          specified edge at the specified timestep
-    #           Choose the agent randomly
-
-    constraints = []
-
-    chosen_agent = collision['a1'] if random.randint(0,1) == 0 else collision['a2']
-    other_agent = collision['a2'] if chosen_agent == collision['a1'] else collision['a1']
-
-    if len(collision['loc']) == 1:
-        constraints.append({
-            'agent': chosen_agent,
-            'loc': collision['loc'],
-            'timestep': collision['timestep'],
-            'positive': True
-        })
-        constraints.append({
-            'agent': other_agent,
-            'loc': collision['loc'],
-            'timestep': collision['timestep'],
-            'positive': False
-        })
-
-    elif len(collision['loc']) == 2:
-        constraints.append({
-            'agent': chosen_agent,
-            'loc': [collision['loc'][0], collision['loc'][1]],
-            'timestep': collision['timestep'],
-            'positive': True
-        })
-        constraints.append({
-            'agent': other_agent,
-            'loc': [collision['loc'][1], collision['loc'][0]],
-            'timestep': collision['timestep'],
-            'positive': False
-        })
-
-    return constraints
-
-def paths_violate_constraint(constraint, paths):
-    assert constraint['positive'] is True
-    rst = []
-    for i in range(len(paths)):
-        if i == constraint['agent']:
-            continue
-        curr = get_location(paths[i], constraint['timestep'])
-        prev = get_location(paths[i], constraint['timestep'] - 1)
-        if len(constraint['loc']) == 1:  # vertex constraint
-            if constraint['loc'][0] == curr:
-                rst.append(i)
-        else:  # edge constraint
-            if constraint['loc'][0] == prev or constraint['loc'][1] == curr \
-                    or constraint['loc'] == [curr, prev]:
-                rst.append(i)
-    return rst
-
-
-
-
 class SATSolver(object):
     """The high-level search of CBS."""
 
@@ -184,7 +27,7 @@ class SATSolver(object):
 
         self.MDDs = []
         self.time_horizon = 0
-        self.variable_ID = 0
+        self.variable_ID = 1
         self.position_vars = {}
         self.transition_vars = {}
         self.clauses = []
@@ -355,6 +198,20 @@ class SATSolver(object):
 
         return clauses
 
+    def encode_to_cnf(self):
+        self.clauses.extend(self.position_validity())
+        self.clauses.extend(self.transition_validity())
+        self.clauses.extend(self.avoid_vertex_collisions())
+        self.clauses.extend(self.avoid_edge_collisions())
+        self.clauses.extend(self.enforce_goal_constraints())
+
+    def write_cnf_to_file(self, filename):
+        with open(filename, 'w') as f:
+            f.write(f"p cnf {self.variable_ID-1} {len(self.clauses)}\n")
+
+            for clause in self.clauses:
+                f.write(' '.join(map(str, clause)) + ' 0\n')
+
     def find_solution(self, disjoint=True):
         """ Finds paths for all agents from their start locations to their goal locations
 
@@ -392,11 +249,9 @@ class SATSolver(object):
             self.MDDs.append(mdd.levels)
         self.position_vars = self.position_variables()
         self.transition_vars = self.transition_variables()
-        self.clauses.append(self.position_validity())
-        self.clauses.append(self.transition_validity())
-        self.clauses.append(self.avoid_vertex_collisions())
-        self.clauses.append(self.avoid_edge_collisions())
-        self.clauses.append(self.enforce_goal_constraints())
+
+        self.encode_to_cnf()
+        self.write_cnf_to_file("mapf_problem.cnf")
         # for mdd in self.MDDs:
         #     print(mdd)
         return None
