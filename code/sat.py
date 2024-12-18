@@ -5,6 +5,7 @@ from pysat.solvers import Solver
 from single_agent_planner import compute_heuristics, a_star, get_location, get_sum_of_cost
 from mdd import MDD
 
+
 class SATSolver(object):
     """The high-level search of CBS."""
 
@@ -53,12 +54,13 @@ class SATSolver(object):
 
         for a in range(self.num_of_agents):
             for t in range(self.time_horizon):
+                # print(a, t)
                 for node in self.MDDs[a][t]:
                     position_vars[(a, node, t)] = self.variable_ID
                     self.variable_ID += 1
         return position_vars
 
-    def is_neighbour(self, u ,v):
+    def is_neighbour(self, u, v):
         if u[0] == v[0]:
             if u[1] == v[1] + 1:
                 return True
@@ -79,7 +81,7 @@ class SATSolver(object):
                 for parent in self.MDDs[a][t]:
                     for child in self.MDDs[a][t + 1]:
                         if self.is_neighbour(parent, child):
-                            transition_vars[(a, parent, child, t)] = self.variable_ID
+                            transition_vars[(a, parent, child, t+1)] = self.variable_ID
                             self.variable_ID += 1
 
         return transition_vars
@@ -101,39 +103,36 @@ class SATSolver(object):
                         clauses.append([-positions[i], -positions[j]])
         return clauses
 
-    #Invalid transitions was pruned during constructing the MDDs
+    # Invalid transitions was pruned during constructing the MDDs
     def transition_validity(self):
         clauses = []
-        # for var in self.position_vars.items():
-        #     print("Position Variables: ", var)
-        # for var in self.transition_vars.items():
-        #     print("Transition Variables: ", var)
         for a in range(self.num_of_agents):
             for t in range(self.time_horizon - 1):
+                outgoing_transitions = []
+                position_var = None
                 for (agent, parent_node, child_node, time_step) in self.transition_vars:
-                    if agent == a and time_step == t:
+                    if agent == a and time_step-1 == t:
                         transition_var = self.transition_vars[(a, parent_node, child_node, time_step)]
 
-                        #Start-to-Transition: Ensure that if the agent is at a position, it must take a valid transition
-                        clauses.append([-self.position_vars[(agent, parent_node, time_step)], transition_var])
+                        # Start-to-Transition: Ensure that if the agent is at a position, it must take a valid transition
+                        position_var = self.position_vars[(agent, parent_node, t)]
+                        outgoing_transitions.append(transition_var)
 
-                        #Transition-to-End: Ensure that if a transition occurs, the agent ends up in the correct position at t + 1
-                        #Be in the starting position at the beginning of the transition
-                        #End up in the destination position at the conclusion of the transition
-                        if (agent, parent_node, time_step + 1) in self.position_vars:
+                        # Transition-to-End: Ensure that if a transition occurs, the agent ends up in the correct position at t + 1
+                        # Be in the starting position at the beginning of the transition
+                        # End up in the destination position at the conclusion of the transition
+                        if (agent, parent_node, time_step) in self.position_vars:
                             clauses.append([-transition_var, self.position_vars[(agent, parent_node, time_step)]])
-                            clauses.append([-transition_var, self.position_vars[(agent, parent_node, time_step + 1)]])
+
+                for i in range(len(outgoing_transitions)):
+                    for j in range(i + 1, len(outgoing_transitions)):
+                        clauses.append([-position_var, outgoing_transitions[i], outgoing_transitions[j]])
 
                 for (agent, parent_node, child_node, time_step) in self.transition_vars:
                     for (agent2, parent_node2, child_node2, time_step2) in self.transition_vars:
-                        if (agent == agent2 and time_step == time_step2 and parent_node == parent_node2
-                                and child_node != child_node2):
-                            #Outgoing Transition Mutual Exclusivity: At most one transition can start from the same position
-                            clauses.append([-self.transition_vars[(agent, parent_node, child_node, time_step)],
-                                            -self.transition_vars[(agent, parent_node, child_node2, time_step2)]])
-                        elif (agent == agent2 and time_step == time_step2 and parent_node != parent_node2
-                                and child_node == child_node2):
-                            #Incoming Transition Mutual Exclusivity: At most one transition can end at the same position
+                        if (agent == agent2 and time_step == time_step2 and parent_node != parent_node2
+                              and child_node == child_node2):
+                            # Incoming Transition Mutual Exclusivity: At most one transition can end at the same position
                             clauses.append([-self.transition_vars[(agent, parent_node, child_node, time_step)],
                                             -self.transition_vars[(agent, parent_node2, child_node, time_step2)]])
 
@@ -144,38 +143,36 @@ class SATSolver(object):
 
         for t in range(self.time_horizon):
             for a in range(self.num_of_agents):
-                for a2 in range(a+1, self.num_of_agents):
+                for a2 in range(a + 1, self.num_of_agents):
                     position_a1 = []
                     position_a2 = []
                     if t < len(self.MDDs[a]):
                         position_a1 = self.MDDs[a][t]
                     if t < len(self.MDDs[a2]):
                         position_a2 = self.MDDs[a2][t]
-                    # print("Position 1: ", position_a1)
-                    # print("Position 2: ", position_a2)
                     for pos in position_a1:
-                         if pos in position_a2:
-                             clauses.append([-self.position_vars[(a, pos, t)], -self.position_vars[(a2, pos, t)]])
+                        if pos in position_a2:
+                            clauses.append([-self.position_vars[(a, pos, t)], -self.position_vars[(a2, pos, t)]])
         return clauses
 
     def avoid_edge_collisions(self):
         clauses = []
         for t in range(self.time_horizon):
             for a in range(self.num_of_agents):
-                for a2 in range(a+1, self.num_of_agents):
+                for a2 in range(a + 1, self.num_of_agents):
                     transitions_a = []
                     transitions_a2 = []
-                    if t < len(self.MDDs[a]) -1:
+                    if t < len(self.MDDs[a]) - 1:
                         for parent in self.MDDs[a][t]:
-                            for child in self.MDDs[a][t+1]:
+                            for child in self.MDDs[a][t + 1]:
                                 if (a, parent, child, t) in self.position_vars:
-                                    transitions_a.append((parent,child))
+                                    transitions_a.append((parent, child))
 
                     if t < len(self.MDDs[a2]) - 1:
                         for parent in self.MDDs[a2][t]:
-                            for child in self.MDDs[a2][t+1]:
+                            for child in self.MDDs[a2][t + 1]:
                                 if (a2, parent, child, t) in self.position_vars:
-                                    transitions_a2.append((parent,child))
+                                    transitions_a2.append((parent, child))
 
                     for (parent, child) in transitions_a:
                         for (parent2, child2) in transitions_a2:
@@ -210,10 +207,9 @@ class SATSolver(object):
                 unique_clauses.append(clause)
         self.clauses = unique_clauses
 
-
     def write_cnf_to_file(self, filename):
         with open(filename, 'w') as f:
-            f.write(f"p cnf {self.variable_ID-1} {len(self.clauses)}\n")
+            f.write(f"p cnf {self.variable_ID - 1} {len(self.clauses)}\n")
 
             for clause in self.clauses:
                 f.write(' '.join(map(str, clause)) + ' 0\n')
@@ -223,7 +219,7 @@ class SATSolver(object):
         for keys in old.keys():
             new.setdefault(old.get(keys), keys)
         return new
-    
+
     def decode_path(self, model, pv):
         agents = []
         nodes = []
@@ -260,60 +256,45 @@ class SATSolver(object):
                 'time_horizon': 0,
                 'collisions': []}
 
-        # solved = False
-
         for i in range(self.num_of_agents):
             path = a_star(self.my_map, self.starts[i], self.goals[i], self.heuristics[i],
-                          i, root['constraints'])
+                        i, root['constraints'])
             if path is None:
                 raise BaseException('No solutions')
             root['paths'].append(path)
             if len(path) > self.time_horizon:
                 self.time_horizon = len(path)
 
-        # print(root['time_horizon'])
-        self.push_node(root)
+            self.push_node(root)
 
-        for i in range(self.num_of_agents):
-            mdd = MDD(self.my_map, self.starts, self.goals, self.time_horizon, i)
-            mdd.build()
-            self.MDDs.append(mdd.levels)
-        self.position_vars = self.position_variables()
-        self.transition_vars = self.transition_variables()
+        solved = False
 
-        self.encode_to_cnf()
-        self.write_cnf_to_file("mapf_problem.cnf")
-        # for mdd in self.MDDs:
-        #     print(mdd)
+        while not solved:
 
-        # print('clauses')
-        clauses = self.clauses[0:40]
-        clauses.append([-7])
-        print(clauses)
-        pv = self.flip_dict(self.position_vars)
-        tv = self.flip_dict(self.transition_vars)
-        for x in pv:
-            print(x, pv.get(x))
-        for x in tv:
-            print(x, tv.get(x))
-        print(self.clauses[40])
-        # print(clauses)
-        # print(self.clauses[101])
-        # print('positions')
-        # print(self.position_vars)
-        # print('transitions')
-        # print(self.transition_vars)
-        # print('\n\ntest:')
-        cnf = CNF(from_clauses=clauses)
-        solver = Solver(bootstrap_with=cnf)
-        if solver.solve():
-            print(solver.get_model())
-        else:
-            print(solver.get_core())
+            self.MDDs = []
+            for i in range(self.num_of_agents):
+                mdd = MDD(self.my_map, self.starts, self.goals, self.time_horizon, i)
+                mdd.build()
+                self.MDDs.append(mdd.levels)
+            
+            print("time horizon", self.time_horizon, "took", timer.time() - self.start_time, "seconds to complete")
+
+            self.position_vars = self.position_variables()
+            self.transition_vars = self.transition_variables()
+
+            self.encode_to_cnf()
+            self.write_cnf_to_file("mapf_problem.cnf")
+            pv = self.flip_dict(self.position_vars)
+            tv = self.flip_dict(self.transition_vars)
+            cnf = CNF(from_clauses=self.clauses)
+            solver = Solver(bootstrap_with=cnf)
+            if solver.solve():
+                solved = True
+            else:
+                self.time_horizon += 1
         paths = self.decode_path(solver.get_model(), pv)
         self.print_results(root)
         return paths
-
 
     def print_results(self, node):
         print("\n Found a solution! \n")
