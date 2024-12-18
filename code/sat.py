@@ -260,6 +260,8 @@ class SATSolver(object):
                 'time_horizon': 0,
                 'collisions': []}
 
+        # solved = False
+
         for i in range(self.num_of_agents):
             path = a_star(self.my_map, self.starts[i], self.goals[i], self.heuristics[i],
                           i, root['constraints'])
@@ -286,19 +288,15 @@ class SATSolver(object):
 
         # print('clauses')
         clauses = self.clauses[0:40]
+        clauses.append([-7])
+        print(clauses)
         pv = self.flip_dict(self.position_vars)
         tv = self.flip_dict(self.transition_vars)
-        # for x in pv:
-        #     print(x, pv.get(x))
-        # for x in tv:
-        #     print(x, tv.get(x))
-        # print(clauses)
-        # print()
-        # print(self.clauses[41:])
-        # for x in self.clauses[41]:
-        #     if x < 0:
-        #         x *= -1
-        #     print(x, pv.get(x), tv.get(x))
+        for x in pv:
+            print(x, pv.get(x))
+        for x in tv:
+            print(x, tv.get(x))
+        print(self.clauses[40])
         # print(clauses)
         # print(self.clauses[101])
         # print('positions')
