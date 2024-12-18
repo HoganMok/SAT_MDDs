@@ -204,6 +204,12 @@ class SATSolver(object):
         self.clauses.extend(self.avoid_vertex_collisions())
         self.clauses.extend(self.avoid_edge_collisions())
         self.clauses.extend(self.enforce_goal_constraints())
+        unique_clauses = []
+        for clause in self.clauses:
+            if clause not in unique_clauses:
+                unique_clauses.append(clause)
+        self.clauses = unique_clauses
+
 
     def write_cnf_to_file(self, filename):
         with open(filename, 'w') as f:
@@ -279,7 +285,20 @@ class SATSolver(object):
         #     print(mdd)
 
         # print('clauses')
-        clauses = self.clauses[0:100]
+        clauses = self.clauses[0:40]
+        pv = self.flip_dict(self.position_vars)
+        tv = self.flip_dict(self.transition_vars)
+        # for x in pv:
+        #     print(x, pv.get(x))
+        # for x in tv:
+        #     print(x, tv.get(x))
+        # print(clauses)
+        # print()
+        # print(self.clauses[41:])
+        # for x in self.clauses[41]:
+        #     if x < 0:
+        #         x *= -1
+        #     print(x, pv.get(x), tv.get(x))
         # print(clauses)
         # print(self.clauses[101])
         # print('positions')
@@ -289,11 +308,10 @@ class SATSolver(object):
         # print('\n\ntest:')
         cnf = CNF(from_clauses=clauses)
         solver = Solver(bootstrap_with=cnf)
-        # print(solver.solve())
-        # print(solver.get_model())
-        # print(solver.get_core())
-        solver.solve()
-        pv = self.flip_dict(self.position_vars)
+        if solver.solve():
+            print(solver.get_model())
+        else:
+            print(solver.get_core())
         paths = self.decode_path(solver.get_model(), pv)
         self.print_results(root)
         return paths
