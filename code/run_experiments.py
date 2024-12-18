@@ -72,7 +72,7 @@ def import_mapf_instance(filename):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Runs various MAPF algorithms')
-    parser.add_argument('--instance', type=str, default=None,
+    parser.add_argument('--instance', type=str, default='exp0.txt',
                         help='The name of the instance file(s)')
     parser.add_argument('--batch', action='store_true', default=False,
                         help='Use batch output instead of animation')
@@ -83,10 +83,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-
     result_file = open("results.csv", "w", buffering=1)
 
-    for file in sorted(glob.glob(args.instance)):
+    filename = 'instances/' + args.instance
+
+    for file in sorted(glob.glob(filename)):
 
         print("***Import an instance***")
         my_map, starts, goals = import_mapf_instance(file)
@@ -110,7 +111,7 @@ if __name__ == '__main__':
             paths = solver.find_solution()
         else:
             raise RuntimeError("Unknown solver!")
-
+        
         cost = get_sum_of_cost(paths)
         result_file.write("{},{}\n".format(file, cost))
 

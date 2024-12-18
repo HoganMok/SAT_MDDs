@@ -1,7 +1,7 @@
 import time as timer
 import heapq
-import random
-import copy
+from pysat.formula import CNF
+from pysat.solvers import Solver
 from single_agent_planner import compute_heuristics, a_star, get_location, get_sum_of_cost
 from mdd import MDD
 
@@ -204,6 +204,12 @@ class SATSolver(object):
         self.clauses.extend(self.avoid_vertex_collisions())
         self.clauses.extend(self.avoid_edge_collisions())
         self.clauses.extend(self.enforce_goal_constraints())
+        unique_clauses = []
+        for clause in self.clauses:
+            if clause not in unique_clauses:
+                unique_clauses.append(clause)
+        self.clauses = unique_clauses
+
 
     def write_cnf_to_file(self, filename):
         with open(filename, 'w') as f:
@@ -211,6 +217,29 @@ class SATSolver(object):
 
             for clause in self.clauses:
                 f.write(' '.join(map(str, clause)) + ' 0\n')
+
+    def flip_dict(self, old):
+        new = {}
+        for keys in old.keys():
+            new.setdefault(old.get(keys), keys)
+        return new
+    
+    def decode_path(self, model, pv):
+        agents = []
+        nodes = []
+        for state in model:
+            if state > 0 and abs(state) <= len(pv):
+                nodes.append(pv.get(abs(state)))
+                if pv.get(abs(state))[0] not in agents:
+                    agents.append(pv.get(abs(state))[0])
+        paths = []
+        for a in agents:
+            path = []
+            for n in nodes:
+                if a == n[0]:
+                    path.append(n[1])
+            paths.append(path)
+        return paths
 
     def find_solution(self, disjoint=True):
         """ Finds paths for all agents from their start locations to their goal locations
@@ -231,6 +260,8 @@ class SATSolver(object):
                 'time_horizon': 0,
                 'collisions': []}
 
+        # solved = False
+
         for i in range(self.num_of_agents):
             path = a_star(self.my_map, self.starts[i], self.goals[i], self.heuristics[i],
                           i, root['constraints'])
@@ -240,7 +271,7 @@ class SATSolver(object):
             if len(path) > self.time_horizon:
                 self.time_horizon = len(path)
 
-        print(root['time_horizon'])
+        # print(root['time_horizon'])
         self.push_node(root)
 
         for i in range(self.num_of_agents):
@@ -254,7 +285,34 @@ class SATSolver(object):
         self.write_cnf_to_file("mapf_problem.cnf")
         # for mdd in self.MDDs:
         #     print(mdd)
-        return None
+
+        # print('clauses')
+        clauses = self.clauses[0:40]
+        clauses.append([-7])
+        print(clauses)
+        pv = self.flip_dict(self.position_vars)
+        tv = self.flip_dict(self.transition_vars)
+        for x in pv:
+            print(x, pv.get(x))
+        for x in tv:
+            print(x, tv.get(x))
+        print(self.clauses[40])
+        # print(clauses)
+        # print(self.clauses[101])
+        # print('positions')
+        # print(self.position_vars)
+        # print('transitions')
+        # print(self.transition_vars)
+        # print('\n\ntest:')
+        cnf = CNF(from_clauses=clauses)
+        solver = Solver(bootstrap_with=cnf)
+        if solver.solve():
+            print(solver.get_model())
+        else:
+            print(solver.get_core())
+        paths = self.decode_path(solver.get_model(), pv)
+        self.print_results(root)
+        return paths
 
 
     def print_results(self, node):
